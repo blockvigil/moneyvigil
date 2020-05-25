@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+	<meta charset='utf-8'>
+	<meta name='theme-color' content='#6200ee'>
+
+	%sapper.base%
+
+	<link rel='manifest' href='/files/manifest.json'>
+	<link rel='icon' type='image/png' href='/files/6-only-logo-512-trans.png'>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/materialize-css@1.0.0/dist/css/materialize.min.css" integrity="sha256-OweaP/Ic6rsV+lysfyS4h+LM6sRwuO3euTYfr6M124g=" crossorigin="anonymous">
+	<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+
+	<!-- Sapper generates a <style> tag containing critical CSS
+	     for the current page. CSS for the rest of the app is
+	     lazily loaded when it precaches secondary pages -->
+	%sapper.styles%
+
+	<!-- This contains the contents of the <svelte:head> component, if
+	     the current page has one -->
+	%sapper.head%
+	<!-- Google Tag Manager -->
+	<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+	new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+	j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+	'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+	})(window,document,'script','dataLayer','GTM-TF9B575');</script>
+	<!-- End Google Tag Manager -->
+	<script src="https://browser.sentry-cdn.com/5.2.1/bundle.min.js" crossorigin="anonymous"></script>
+	<script>try{Sentry.init({ dsn: 'https://7d79e5553c044b30b234ec8e0a6604ce@sentry.io/1464424' })}catch(e){};</script>
+</head>
+<body>
+	<!-- The application will be rendered inside this element,
+	     because `app/client.js` references it -->
+	%sapper.html%
+
+	<!-- Sapper creates a <script> tag containing `app/client.js`
+	     and anything else it needs to hydrate the app and
+	     initialise the router -->
+	%sapper.scripts%
+	<script>
+		(function(){var w=window;var ic=w.Intercom;if(typeof ic==="function"){ic('reattach_activator');ic('update',w.intercomSettings);}else{var d=document;var i=function(){i.c(arguments);};i.q=[];i.c=function(args){i.q.push(args);};w.Intercom=i;var l=function(){var s=d.createElement('script');s.type='text/javascript';s.async=true;s.src='https://widget.intercom.io/widget/';var x=d.getElementsByTagName('script')[0];x.parentNode.insertBefore(s,x);};if(w.attachEvent){w.attachEvent('onload',l);}else{w.addEventListener('load',l,false);}}})();
+	</script>
+	<script>
+	if ('serviceWorker' in navigator) {
+		navigator.serviceWorker.onmessage = function (evt) {
+			postMessage(JSON.parse(evt.data));
+		}
+	}
+	</script>
+	<script src="https://cdn.jsdelivr.net/npm/@portis/web3@2.0.0-beta.54/umd/index.js" integrity="sha256-pPwrJF/X2v9erIHBoY3ZWb4P/cRx3j3/zyvQvycabs0=" crossorigin="anonymous"></script>
+	<script src="https://cdn.jsdelivr.net/npm/ethers@4.0.47/dist/ethers.min.js" integrity="sha256-IXO7UrN18oPCFqROchnCxoJuKFfLqXG2qHxjOVl0jVo=" crossorigin="anonymous"></script>
+</body>
+</html>

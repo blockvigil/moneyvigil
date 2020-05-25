@@ -1,0 +1,157 @@
+/*
+https://materializecss.com/color.html
+
+#512da8 deep-purple darken-2
+#7e57c2 deep-purple lighten-1
+#b39ddb deep-purple lighten-3
+#1565c0 blue darken-3
+
+ */
+
+html {
+	font-family: Helvetica Neue, Helvetica, Arial, sans-serif;
+}
+body {
+	display: flex;
+	min-height: 100vh;
+	flex-direction: column;
+}
+
+main {
+	flex: 1 0 auto;
+}
+
+nav {
+	/*background-color: #1565C0;*/
+	background-color: #6200ee;
+}
+
+.modal {
+  overflow: visible !important;
+}
+
+.page-footer {
+	padding: 0;
+	background-color: #6200ee;
+}
+
+.datepicker-date-display {
+	background-color: #512da8;
+}
+.datepicker-controls .select-month input {
+	width: 5em !important;
+}
+
+.datepicker-table td.is-selected {
+	background-color: #512da8;
+	color: #fff !important;
+}
+
+.datepicker-table td.is-today {
+	color: #512da8;
+}
+
+.datepicker-table .selects-container {
+	color: #512da8;
+}
+
+.dropdown-content li > a, .dropdown-content li > span {
+	color: #512da8;
+}
+
+input:focus {
+	border-bottom: 1px solid #512da8 !important;
+	box-shadow: 0 1px 0 0 #512da8 !important;
+}
+
+label {
+	color: #512da8 !important;
+	display: none;
+}
+
+.btn {
+	background-color: #512da8;
+}
+
+.btn:focus {
+	background-color: #7e57c2;
+}
+
+.btn:hover {
+	background-color: #7e57c2;
+}
+
+.button {
+	background-color: #512da8 !important;
+}
+
+.btn-flat {
+	color: #512da8;
+}
+
+.progress {
+	position: fixed;
+	top: -8px;
+	background-color: #ffffff;
+}
+
+.progress .determinate {
+	background-color: #b39ddb;
+}
+
+.progress .indeterminate {
+	background-color: #b39ddb;
+}
+
+.collection {
+	padding-top: 1px;
+	padding-bottom: 1px;
+}
+
+.switch label input[type="checkbox"]:checked + .lever{
+	background-color: #b39ddb !important;
+}
+.switch label input[type="checkbox"]:checked + .lever::after{
+	background-color: #512da8 !important;
+}
+.switch label input[type="checkbox"]:checked + .lever::before{
+	background-color: #512da8 !important;
+}
+
+@media only screen and (max-width: 992px) {
+	.modal {
+		width: 95% !important;
+		max-height: 85% !important;
+	}
+}
+
+.mdc-button {
+	font-weight: 550 !important;
+}
+
+@keyframes blink {
+	0% {
+		opacity: .2;
+	}
+	20% {
+		opacity: 1;
+	}
+	100% {
+		opacity: .2;
+	}
+}
+
+.loading span {
+	animation-name: blink;
+	animation-duration: 1.4s;
+	animation-iteration-count: infinite;
+	animation-fill-mode: both;
+}
+
+.loading span:nth-child(2) {
+	animation-delay: .2s;
+}
+
+.loading span:nth-child(3) {
+	animation-delay: .4s;
+}

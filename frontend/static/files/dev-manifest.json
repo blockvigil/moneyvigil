@@ -1,0 +1,20 @@
+{
+	"background_color": "#ffffff",
+	"theme_color": "#6200ee",
+	"name": "MoneyVigil Alpha Dev",
+	"short_name": "MoneyVigil Alpha Dev",
+	"display": "standalone",
+	"start_url": "/",
+	"icons": [
+		{
+			"src": "/files/6-only-logo-192-dev-trans.png",
+			"sizes": "192x192",
+			"type": "image/png"
+		},
+		{
+			"src": "/files/6-full-vert-trans-512.png",
+			"sizes": "512x512",
+			"type": "image/png"
+		}
+	]
+}

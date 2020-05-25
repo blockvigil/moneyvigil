@@ -1,0 +1,50 @@
+{
+  "development": {
+      "privatekey": "private key for ethvigil account",
+      "contractAddress": null,
+      "ENSManagerContract": "",
+      "DaiContract": "",
+      "cDaiContract": "",
+      "topLevelENSDomain": {
+        "name": "local.eth",
+        "nameHash": "0x"
+      },
+      "CORS_ENABLED": true,
+      "GCP_BUCKET": "",
+      "ERC20_CONTRACT": "0xeffad4ee790eecc72e4348471a8a9cded2ccd7c3",
+      "ACL_WEBHOOK_ENPOINT": "https://b852d5d5.ngrok.io",
+      "MONEYVIGIL_LINK_PREFIX": "http://localhost:3000",
+      "RECEIPT_LINK_PREFIX": "http://localhost:5000/receipt",
+      "INTERCOM_HASH_SECRET": "-wVYKK",
+        "REST_API_ENDPOINT": "http://localhost:8080/v0.1",
+      "ETHVIGIL_USER_ADDRESS": "0x4a20608f7821d13dcb61ae130753cd58b597b03b",
+      "ETHVIGIL_API_KEY": "19ec3631-da6a-4b97-876a-8d3c40823464",
+      "REDIS": {
+        "SENTINEL": {
+              "INSTANCES": [["127.0.0.1", 16380], ["127.0.0.1", 16381], ["127.0.0.1", 16382]],
+              "CLUSTER_NAME": "redis-cluster"
+          },
+        "DB": 0,
+        "PASSWORD": null
+      },
+      "NEO4J": {
+        "URL": "bolt://neo4j:neo4j@localhost:7687",
+        "USERNAME": "neo4j",
+        "PASSWORD": "neo4j"
+      },
+      "MYSQL": {
+        "HOST": "127.0.0.1",
+        "USER": "root",
+        "PASSWORD": "",
+        "DB": ""
+      },
+      "FLASK_APP_SECRET_KEY": "",
+      "SES_CREDENTIALS": {
+          "from": "EthVigil Hooks <anomit.ghosh@gmail.com>",
+          "region": "eu-west-1",
+          "accessKeyId": "",
+          "secretAccessKey": "",
+          "accountId": 1,
+      }
+   }
+}

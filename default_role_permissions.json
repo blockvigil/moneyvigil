@@ -1,0 +1,99 @@
+{
+  "GlobalOwner": {
+    "CAN_VIEW_BILL": true,
+    "CAN_ADD_BILL": true,
+    "CAN_EDIT_BILL": true,
+    "CAN_DELETE_BILL": true,
+    "CAN_APPROVE_BILL": true,
+    "CAN_DISBURSE": true,
+    "CAN_ADD_GROUP": true,
+    "CAN_ADD_APPROVER": true,
+    "CAN_ADD_DISBURSER": true,
+    "CAN_ADD_EMPLOYEE": true,
+    "CAN_ADD_OWNER": true
+  },
+
+  "GlobalApprover": {
+    "CAN_VIEW_BILL": true,
+    "CAN_ADD_BILL": false,
+    "CAN_EDIT_BILL": true,
+    "CAN_DELETE_BILL": false,
+    "CAN_APPROVE_BILL": true,
+    "CAN_DISBURSE": false,
+    "CAN_ADD_GROUP": true,
+    "CAN_ADD_APPROVER": false,
+    "CAN_ADD_DISBURSER": true,
+    "CAN_ADD_EMPLOYEE": true,
+    "CAN_ADD_OWNER": false
+  },
+
+  "GlobalDisburser": {
+    "CAN_VIEW_BILL": true,
+    "CAN_ADD_BILL": true,
+    "CAN_EDIT_BILL": false,
+    "CAN_DELETE_BILL": false,
+    "CAN_APPROVE_BILL": false,
+    "CAN_DISBURSE": true,
+    "CAN_ADD_GROUP": true,
+    "CAN_ADD_APPROVER": false,
+    "CAN_ADD_DISBURSER": false,
+    "CAN_ADD_EMPLOYEE": true,
+    "CAN_ADD_OWNER": false
+  },
+
+  "GroupOwner": {
+    "CAN_VIEW_BILL": true,
+    "CAN_ADD_BILL": true,
+    "CAN_EDIT_BILL": true,
+    "CAN_DELETE_BILL": true,
+    "CAN_APPROVE_BILL": true,
+    "CAN_DISBURSE": false,
+    "CAN_ADD_GROUP": false,
+    "CAN_ADD_APPROVER": true,
+    "CAN_ADD_DISBURSER": true,
+    "CAN_ADD_EMPLOYEE": false,
+    "CAN_ADD_OWNER": false
+  },
+
+  "GroupApprover": {
+    "CAN_VIEW_BILL": true,
+    "CAN_ADD_BILL": false,
+    "CAN_EDIT_BILL": false,
+    "CAN_DELETE_BILL": false,
+    "CAN_APPROVE_BILL": true,
+    "CAN_DISBURSE": false,
+    "CAN_ADD_GROUP": false,
+    "CAN_ADD_APPROVER": false,
+    "CAN_ADD_DISBURSER": false,
+    "CAN_ADD_EMPLOYEE": false,
+    "CAN_ADD_OWNER": false
+  },
+
+  "GroupDisburser": {
+    "CAN_VIEW_BILL": true,
+    "CAN_ADD_BILL": false,
+    "CAN_EDIT_BILL": false,
+    "CAN_DELETE_BILL": false,
+    "CAN_APPROVE_BILL": false,
+    "CAN_DISBURSE": true,
+    "CAN_ADD_GROUP": false,
+    "CAN_ADD_APPROVER": false,
+    "CAN_ADD_DISBURSER": false,
+    "CAN_ADD_EMPLOYEE": false,
+    "CAN_ADD_OWNER": false
+  },
+
+  "Employee": {
+    "CAN_VIEW_BILL": true,
+    "CAN_ADD_BILL": true,
+    "CAN_EDIT_BILL": false,
+    "CAN_DELETE_BILL": false,
+    "CAN_APPROVE_BILL": false,
+    "CAN_DISBURSE": false,
+    "CAN_ADD_GROUP": false,
+    "CAN_ADD_APPROVER": false,
+    "CAN_ADD_DISBURSER": false,
+    "CAN_ADD_EMPLOYEE": false,
+    "CAN_ADD_OWNER": false
+  }
+}

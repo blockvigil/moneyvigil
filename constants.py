@@ -1,0 +1,9 @@
+SIMPLIFIED_GROUPDEBT_CACHE_KEY = 'MoneyVigil:{}:{}:simplifieddebtmap'
+SIMPLIFIED_SPLITMAP_CACHE_RESOURCE = 'MoneyVigil:{}:{}:simplifieddebtupdate'  # <contractaddr>:<groupUUID>
+ORIGINAL_SPLITMAP_KEY = 'MoneyVigil:{}:{}:splitMapOriginal'  # contract addr, billuuidhash
+EFFECTIVE_SPLITMAP_KEY = 'MoneyVigil:{}:{}:splitMap'  # contract addr, billuuidhash
+TO_BE_MINED_ACL_CONTRACTS = 'MoneyVigil:acldeploy:{}'  # entity UUID hash
+TO_BE_MINED_ENTITY_INFODUMP = 'moneyvigil:pendingEntity:{}'  # entity UUID hash
+PENDING_DISBURSAL_BILL = 'moneyvigil:pendingDisbursal:{}:{}'  # contract addr, group uuid
+CONTRACT_DAI_FUNDS = 'moneyvigil:daiFunds:{}'  # ACL contract address
+CONTRACT_CDAI_FUNDS = 'moneyvigil:cDaiFunds:{}' # ACL contract address

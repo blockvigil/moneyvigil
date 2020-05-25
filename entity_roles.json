@@ -1,0 +1,14 @@
+{
+  "global": [
+    "GlobalOwner",
+    "GlobalApprover",
+    "GlobalDisburser",
+    "Employee"
+  ],
+
+  "group": [
+  "GroupOwner",
+  "GroupApprover",
+  "GroupDisburser"
+  ]
+}

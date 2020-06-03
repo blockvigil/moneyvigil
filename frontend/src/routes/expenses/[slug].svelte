@@ -445,9 +445,6 @@
 			{#if item.pendingPayment}
 				<button class="mdc-button mdc-button--raised" disabled>Pending Payment</button>
 			{:else}
-				{#if item.member.upi}
-				<a class="btn" target="_blank" href="upi://pay?am={item.amount/100}&tn=BlockSplit&pa={item.member.upi}">Pay with UPI</a>
-				{/if}
 				<button class="mdc-button mdc-button--raised" on:click={(event) => {payCheck(event, item)}}>
 					<span class="mdc-button__label loading">{#if submitting}Submitting<span>.</span><span>.</span><span>.</span>{:else}Mark as Paid{/if}</span>
 					</button>

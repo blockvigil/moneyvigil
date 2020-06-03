@@ -148,7 +148,7 @@
 			{:else if validEmail}
 				{#if isUser.checking}Checking..
 				{:else}
-				<button class="mdc-button mdc-button--raised" data-intercom-target="Show Invite" on:click="{() => showInvite = true}">Invite to BlockSplit</button>
+				<button class="mdc-button mdc-button--raised" data-intercom-target="Show Invite" on:click="{() => showInvite = true}">Invite to MoneyVigil</button>
 				{/if}
 			{:else if email}
 				Enter a valid email address

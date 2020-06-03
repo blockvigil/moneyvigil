@@ -1,7 +1,8 @@
 <script>
 	import { onMount } from 'svelte';
+	import { goto } from '@sapper/app';
 	import { loginModalStore, userUUID } from '../stores.js';
-	import { setUserId, setUserToken, setLoginModal, makeAuthenticateCall, initialize } from '../common.js';
+	import { setUserId, setUserToken, setLoginModal, makeAuthenticateCall } from '../common.js';
 	import Login from '../components/Login.svelte';
 
 	let loginModal = false;
@@ -15,7 +16,7 @@
 
 	onMount(async () => {
 		await logout();
-		await initialize();
+		goto('/');
 	});
 
 	async function logout(){
@@ -27,7 +28,7 @@
 		localStorage.removeItem(userUUID_value+'_token');
 		setUserId('');
 		setUserToken('');
-		setLoginModal(true);
+		//setLoginModal(true);
 	}
 </script>
 <svelte:head>

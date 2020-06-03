@@ -10,9 +10,6 @@
 	let signupEmail = ''
 	let signupPassword = '';
 	let signupCode = '';
-	let signupToken = 0;
-	let activateForm = false;
-	let activeEnabled = false;
 	let validEmail = false;
 	let urlParams;
 	let invited = false;
@@ -26,18 +23,19 @@
 		} else {
 			validEmail = false;
 		}
-		if (signupName && validEmail && signupPassword && signupCode){
-			signupEnabled = true;
-			setRippleButtons();
+		if (invited){
+			if (signupName && validEmail && signupPassword && signupCode){
+				signupEnabled = true;
+				setRippleButtons();
+			} else {
+				signupEnabled = false;
+			}
 		} else {
-			signupEnabled = false;
-		}
-		signupToken = !signupToken || isNaN(signupToken) ? 0 : parseInt(signupToken);
-		if (signupToken > 0 && signupEmail){
-			activeEnabled = true;
-			setRippleButtons();
-		} else {
-			activeEnabled = false;
+			if (validEmail && signupName) {
+				signupEnabled = true;
+			} else {
+				signupEnabled = false;
+			}
 		}
 		if (signupPassword != ''){
 			clearTimeout(passwordCheckTimeout);
@@ -48,6 +46,34 @@
 			passwordWarnText = "";
 		}
 	}
+	async function invite(){
+		event.preventDefault();
+		var d = await makeAuthenticateCall('/invite', {
+			email: signupEmail,
+			name: signupName,
+		});
+		if (!d){
+			alert('Could not get invite. Try again!');
+			return;
+		}
+		if (d.success){
+			invited = true;
+			initialize();
+		} else {
+			console.log(d.message);
+			if (d.message == 'UserExists'){
+				if (d.signedUp){
+					login();
+					alert('You have already signed up!');
+				} else {
+					alert("Invite already requested for this email. Check your inbox!");
+				}
+			} else {
+				alert('Could not get invite. Try again!');
+			}
+		}
+	}
+
 	async function signup(){
 		if (!signupEnabled){
 			return false;
@@ -62,116 +88,73 @@
 		if (!d){
 			return;
 		}
-		if ((d.success && !d.activated) || d.message == 'NotActivated' || d.message == 'ActivationExpired'){
-			activateForm = true;
-			await setLabels();
-			M.updateTextFields();
-			setRippleButtons();
-		} else {
-			if (d.activated || d.message == 'SignedUp'){
-				activate(null, true);
-			} else{
-				console.error(d);
-				let msg;
-				switch (d.message){
-					case 'InvalidEmailForInvite':
-						msg = 'You need to use the same email as your invitation.';
-					break;
-					case 'InvalidInvite':
-						msg = 'Your invitation code is not valid.';
-					break;
-					case 'ExpiredInvite':
-						msg = 'Your invitation code has expired.';
-					break;
-					default:
-						msg = 'Could not sign up. Try again!';
-					break;
+		if (d.activated || d.message == 'SignedUp'){
+			d = await makeAuthenticateCall('/login', {
+				email: signupEmail,
+				password: signupPassword
+			});
+			if (d && d.success){
+				setUserId(d.uuid);
+				setUserToken(d["auth-token"]);
+				localStorage.setItem('uuid', d.uuid);
+				localStorage.setItem(d.uuid+'_token', d["auth-token"]);
+				setLoginModal(false);
+				try{
+					FS.identify(d.uuid, {
+						email: signupEmail,
+					});
 				}
-				alert(msg);
+				catch (e){
+					//Fullstory may be blocked, respect the user's privacy..
+				}
+			} else {
+				console.error(d);
+				alert('Could not login. Try again!');
 			}
+			localStorage.removeItem('signupName');
+			localStorage.removeItem('signupEmail');
+			localStorage.removeItem('signupCode');
+			goto('/corporate');
+		} else{
+			console.error(d);
+			let msg;
+			switch (d.message){
+				case 'InvalidEmailForInvite':
+					msg = 'You need to use the same email as your invitation.';
+				break;
+				case 'InvalidInvite':
+					msg = 'Your invitation code is not valid.';
+				break;
+				case 'ExpiredInvite':
+					msg = 'Your invitation code has expired.';
+				break;
+				default:
+					msg = 'Could not sign up. Try again!';
+				break;
+			}
+			alert(msg);
 		}
+	}
+	function login(){
+		goto('/');
 	}
 	onMount(() => {
 		urlParams = new URLSearchParams(window.location.search);
-		if (urlParams.get('activationEmail')){
-			activateForm = true;
-			signupEmail = urlParams.get('activationEmail') || '';
-			signupToken = urlParams.get('activationCode') || 0;
+		signupName = urlParams.get('name') || localStorage.getItem('signupName') || '';
+		if (urlParams.get('signupEmail')){
+			signupEmail = urlParams.get('signupEmail').replace(' ', '+');
 		} else {
-			signupName = urlParams.get('name') || localStorage.getItem('signupName') || '';
-			if (urlParams.get('signupEmail')){
-				signupEmail = urlParams.get('signupEmail').replace(' ', '+');
-			} else {
-				signupEmail = localStorage.getItem('signupEmail') || '';
-			}
-			signupCode = urlParams.get('inviteCode') || localStorage.getItem('signupCode') || '';
-			if (urlParams.get('inviteCode')){
-				invited = true;
-			}
+			signupEmail = localStorage.getItem('signupEmail') || '';
+		}
+		signupCode = urlParams.get('inviteCode') || '';
+		if (urlParams.get('inviteCode')){
+			invited = true;
 		}
 		initialize();
 		localStorage.setItem('signupName', signupName);
 		localStorage.setItem('signupEmail', signupEmail);
 		localStorage.setItem('signupCode', signupCode);
 	});
-	async function activate(event, login){
-		var d;
-		if (!login){
-			if (!activeEnabled){
-				return false;
-			}
-			if (event){
-				event.preventDefault();
-			}
-			d = await makeAuthenticateCall('/activate', {
-				token: signupToken.toString(),
-				email: signupEmail
-			}, 'Could not activate. Try again!');
-			if (!d){
-				return;
-			}
-		}
-		if (login || d.success || d.message == 'SignedUp'){
-			if (!urlParams.get('activationEmail')){
-				d = await makeAuthenticateCall('/login', {
-					email: signupEmail,
-					password: signupPassword
-				});
-				if (d && d.success){
-					setUserId(d.uuid);
-					setUserToken(d["auth-token"]);
-					localStorage.setItem('uuid', d.uuid);
-					localStorage.setItem(d.uuid+'_token', d["auth-token"]);
-					setLoginModal(false);
-					try{
-						FS.identify(d.uuid, {
-							email: signupEmail,
-						});
-					}
-					catch (e){
-						//Fullstory may be blocked, respect the user's privacy..
-					}
-				} else {
-					console.error(d);
-					alert('Could not login. Try again!');
-				}
-			}
-			localStorage.removeItem('signupName');
-			localStorage.removeItem('signupEmail');
-			localStorage.removeItem('signupCode');
-			goto('/?product_tour_id=31368');
-		} else {
-			if (d.message == 'ActivationExpired'){
-				alert('We have sent you a new activation code!');
-				signupToken = 0;
-			} else {
-				alert('Could not activate with the code. Try again!');
-			}
-		}
-	}
-	function login(){
-		goto('/logout');
-	}
 </script>
 <svelte:head>
 	<title>Signup </title>
@@ -179,28 +162,6 @@
 <div id="signuptab" class="col s12">
 	<h4>Signup</h4>
 	<form>
-	{#if activateForm}
-	<div class="row">
-		<div class="input-field col s12">
-			<input id="signupToken" bind:value={signupToken} type="text" class="validate" required>
-			<label for="signupToken">Enter Activation Code</label>
-			<span class="helper-text">{#if !signupToken}We emailed you a code{/if}</span>
-		</div>
-		<div class="input-field col s12">
-			<input id="signupEmail" bind:value={signupEmail} type="email" disabled>
-			<label for="signupEmail">Email</label>
-		</div>
-		{#if activeEnabled}
-		<button class="mdc-button mdc-button--raised" on:click={activate} type="submit" onsubmit="return false">Finish Signup
-			<i class="material-icons right">send</i>
-		</button>
-		{:else}
-		<button class="mdc-button mdc-button--raised" disabled  on:click={activate}>Finish Signup
-			<i class="material-icons right">send</i>
-		</button>
-		{/if}
-	</div>
-	{:else}
 	<div class="row">
 		<div class="input-field col s12">
 			{#if invited}
@@ -218,6 +179,7 @@
 			<label for="signupName">Your Name</label>
 			<span class="helper-text">{signupName ? 'Hello '+signupName+'!' : ''}</span>
 		</div>
+		{#if invited}
 		<div class="input-field col s12">
 			<input id="signupPassword" bind:value={signupPassword} type="password" required>
 			<label for="signupPassword">Password</label>
@@ -228,20 +190,21 @@
 		<div class="input-field col s12">
 			<input id="signupCode" bind:value={signupCode} type="text" required>
 			<label for="signupCode">Invitation Code</label>
+			<span class="helper-text">{#if !signupCode}We emailed you an invite code{/if}</span>
 		</div>
+		{/if}
 		{#if signupEnabled}
-		<button class="mdc-button mdc-button--raised" on:click={signup} type="submit">
-			<span class="mdc-button__label">Signup</span>
+		<button class="mdc-button mdc-button--raised" on:click={invited ? signup : invite} type="submit">
+			<span class="mdc-button__label">{invited ? 'Signup': 'Request Invite'}</span>
 			<i class="material-icons mdc-button__icon right">send</i>
 		</button>
 		{:else}
-		<button class="mdc-button mdc-button--raised" disabled on:click={signup} type="submit">
-			<span class="mdc-button__label">Signup</span>
+		<button class="mdc-button mdc-button--raised" disabled type="submit">
+			<span class="mdc-button__label">{invited ? 'Signup': 'Request Invite'}</span>
 			<i class="material-icons mdc-button__icon right">send</i>
 		</button>
 		{/if}
 		<button class="mdc-button right" on:click={login}>Existing User?</button>
 	</div>
-	{/if}
 	</form>
 </div>

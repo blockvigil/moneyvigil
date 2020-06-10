@@ -1,4 +1,5 @@
 #!/bin/sh
+python fill_alembic_ini.py
 python cleanup_graphdb.py
 alembic downgrade base
 alembic upgrade head

@@ -10,6 +10,7 @@ from models import *
 from neo4j.v1 import GraphDatabase
 import logging
 import coloredlogs
+import tenacity
 import sys
 import aiohttp
 import json
@@ -166,7 +167,11 @@ def get_simplified_debt_graph(group_uuid):
         simplified_mapping[cur_debitor] += min_deductible
     return final_mapping
 
-
+@tenacity.retry(
+    stop=tenacity.stop_after_delay(90),
+    wait=tenacity.wait_random_exponential(multiplier=1, max=60),
+    reraise=True
+)
 async def redisconn():
     sentinels = await aioredis.create_sentinel(REDIS_CONF['SENTINEL']['INSTANCES'], db=REDIS_DB,
                                                password=REDIS_PASSWORD)
@@ -180,23 +185,22 @@ async def redis_master_creds():
     conn_creds = await sentinels.master_address(REDIS_CONF['SENTINEL']['CLUSTER_NAME'])
     return conn_creds
 
-
-async def update_simplified_group_debts(group_uuid):
-    master_creds = await redis_master_creds()
-    tornado_logger.debug('Got redis master connection parameters')
-    tornado_logger.debug(master_creds)
-    REDIS_INSTANCES = [master_creds]
-    redlock_manager = aioredlock.Aioredlock(REDIS_INSTANCES)
+@tenacity.retry(
+stop=tenacity.stop_after_delay(90),
+    wait=tenacity.wait_random_exponential(multiplier=1, max=60),
+    reraise=True,
+    after=tenacity.after_log(tornado_logger, logging.DEBUG)
+)
+async def update_simplified_group_debts(group_uuid, r):
     splitmap_lock_resource = SIMPLIFIED_SPLITMAP_CACHE_RESOURCE.format(settings['contractAddress'], group_uuid)
-    tornado_logger.debug(f'Attempting to acquire distributed lock on resource {splitmap_lock_resource}')
-    async with await redlock_manager.lock(resource=splitmap_lock_resource) as lock:
-        final_settlement = get_simplified_debt_graph(group_uuid)
-        tornado_logger.debug('Final simplified debt graph: ')
-        tornado_logger.debug(final_settlement)
-        r = await redisconn()
-        await r.set(SIMPLIFIED_GROUPDEBT_CACHE_KEY.format(settings['contractAddress'], group_uuid),
-                    json.dumps(final_settlement))
-        return True
+    tornado_logger.debug(f'Attempting to update splitmap resource {splitmap_lock_resource}')
+    final_settlement = get_simplified_debt_graph(group_uuid)
+    tornado_logger.debug('Final simplified debt graph: ')
+    tornado_logger.debug(final_settlement)
+    await r.set(SIMPLIFIED_GROUPDEBT_CACHE_KEY.format(settings['contractAddress'], group_uuid),
+                json.dumps(final_settlement))
+
+    return True
 
 
 def create_owes_relationship(tx, debitor_uuid, creditor_uuid, relationship_label, amount):
@@ -229,7 +233,7 @@ async def process_microupdate_neo4j(debitor, creditor, group, amount):
             tornado_logger.debug('Success!')
 
 
-async def get_effective_splitmap(bill_uuid_hash, bill_data, contract_address):
+async def get_effective_splitmap(bill_uuid_hash, bill_data, contract_address, redis_conn):
     """
     wraps necessary logic for retrieving splitmap of a bill and saving of corresponding intermediate state in case of failure
     :param bill_uuid_hash:
@@ -239,7 +243,6 @@ async def get_effective_splitmap(bill_uuid_hash, bill_data, contract_address):
     """
     # retrieve split map from redis
     key = EFFECTIVE_SPLITMAP_KEY.format(contract_address, bill_uuid_hash)
-    redis_conn = await redisconn()
     final_settlement = await redis_conn.get(key=key)
     if not final_settlement:
         await backup_failed_bills(bill_uuid_hash, bill_data, contract_address)
@@ -250,7 +253,7 @@ async def get_effective_splitmap(bill_uuid_hash, bill_data, contract_address):
         return json.loads(final_settlement)
 
 
-async def get_bill_graphdb(bill_uuid_hash, bill_data, contract_address):
+async def get_bill_graphdb(bill_uuid_hash, bill_data, contract_address, redis_conn):
     """
     wraps necessary logic for retrieving bill information and saving of intermediate state of bill in case of failure
     :param bill_uuid_hash:
@@ -262,7 +265,7 @@ async def get_bill_graphdb(bill_uuid_hash, bill_data, contract_address):
     bill = Bill.nodes.first_or_none(uuidhash=bill_uuid_hash)
     # ERROR: if bill not found in graph DB
     if not bill:
-        await backup_failed_bills(bill_uuid_hash, bill_data, contract_address)
+        await backup_failed_bills(bill_uuid_hash, bill_data, contract_address, redis_conn)
         log_failed_bill(bill_uuid_hash, 'Failed to update Bill state to 1 in Neo4J: Bill not found')
         return None
     else:
@@ -274,7 +277,7 @@ def get_entity_graphdb(company_uuid_hash):
     return entity
 
 
-async def bill_graph_update(state_update, bill_graph_obj, bill_uuid_hash, backup_bill_data, contract_address):
+async def bill_graph_update(state_update, bill_graph_obj, bill_uuid_hash, backup_bill_data, contract_address, redis_conn):
     """
     wraps necessary logic for updating bill state in graph DB and saving of intermediate state of bill in case of failure
     :param state_update: a dict that holds necessary fields to be updated
@@ -292,7 +295,7 @@ async def bill_graph_update(state_update, bill_graph_obj, bill_uuid_hash, backup
     try:
         bill_graph_obj.save()
     except Exception as e:
-        await backup_failed_bills(bill_uuid_hash, backup_bill_data.update({'exception': e}), contract_address)
+        await backup_failed_bills(bill_uuid_hash, backup_bill_data.update({'exception': e}), contract_address, redis_conn)
         log_failed_bill(bill_uuid_hash, f'Update operation failed to set Bill state to {state_update} in Neo4J')
         return False
     else:
@@ -300,7 +303,7 @@ async def bill_graph_update(state_update, bill_graph_obj, bill_uuid_hash, backup
         return True
 
 
-async def bill_reldb_update(session, state_update, bill_uuid_hash, request_json, contract_address):
+async def bill_reldb_update(session, state_update, bill_uuid_hash, request_json, contract_address, redis_conn):
     """
         wraps necessary logic for updating bill state in relational DB and saving of intermediate state of bill in case of failure
         :param state_update: a dict that holds necessary fields to be updated
@@ -365,12 +368,12 @@ async def bill_reldb_update(session, state_update, bill_uuid_hash, request_json,
             # hinging on the possibly immutable assumption that the lifecycle stages will only be 0, 1 or 2
             'reason': 'BillNotFound:RelationalDB'
         }
-        ), contract_address)
+        ), contract_address, redis_conn)
         log_failed_bill(bill_uuid_hash,
                         'Failed to update Bill state to 1 in Relational DB: Bill not found')
 
 
-async def backup_failed_bills(bill_uuid_hash, bill_data, contract_address):
+async def backup_failed_bills(bill_uuid_hash, bill_data, contract_address, redis_conn):
     """
     backup during a failed update operation on a bill
     :param bill_uuid_hash:
@@ -378,7 +381,6 @@ async def backup_failed_bills(bill_uuid_hash, bill_data, contract_address):
     :param contract_address:
     :return:
     """
-    redis_conn = await redisconn()
     failed_bills_set = f'MoneyVigil:{contract_address}:failedbillhashes'
     await redis_conn.sadd(failed_bills_set, bill_uuid_hash)
     failed_bill_details = f'MoneyVigil:{contract_address}:failedbill:{bill_uuid_hash}'
@@ -410,6 +412,7 @@ async def record_bill_activities(session, bill_obj, request_json):
         session.query(MoneyVigilEvent).filter(
             MoneyVigilEvent.ethvigil_event_id == request_json['ethvigil_event_id']).first
     )
+    e = None
     if not tx_event_r:
         e = MoneyVigilEvent(
             ethvigil_event_id=request_json['ethvigil_event_id'],
@@ -421,7 +424,8 @@ async def record_bill_activities(session, bill_obj, request_json):
     for u_uuid in set(bill_obj.expenseMap.keys()):
         rel_db_user = await as_future(
             session.query(MoneyVigilUser).filter(MoneyVigilUser.uuid == u_uuid).first)
-        e.users.append(rel_db_user)
+        if e:
+            e.users.append(rel_db_user)
         # add activities for all involved users
         a_ = MoneyVigilActivity(
             associated_event_id=request_json['ethvigil_event_id'],
@@ -534,8 +538,7 @@ async def process_group_ACL_update(session, eth_address, entity_uuid_hash, group
     session.add(role_reldb)
 
 
-async def entity_contract_deployed_processing(session, uuid_hash, contract_addr):
-    r = await redisconn()
+async def entity_contract_deployed_processing(session, uuid_hash, contract_addr, r):
     e = await r.get(TO_BE_MINED_ENTITY_INFODUMP.format(uuid_hash))
     if e:
         entity_details = json.loads(e)
@@ -762,13 +765,14 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                 tornado_logger.debug(request_json)
                 contract_addr = to_normalized_address(request_json['contract'])
                 ENTITY_CONTRACTS.add(contract_addr)
+                r_conn = await redisconn()
                 with self.make_session() as session:
                     await entity_contract_deployed_processing(
                         session=session,
                         uuid_hash=event_data['companyUUIDHash'],
-                        contract_addr=contract_addr
+                        contract_addr=contract_addr,
+                        r = r_conn
                     )
-                r_conn = await redisconn()
                 await record_dai_balance(r_conn, contract_addr)
                 await record_cdai_balance(r_conn, contract_addr)
                 # find out deploying user for this entity, add that as top level globalowner
@@ -805,11 +809,12 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                 tornado_logger.debug('-----Bill Created event------')
                 bill_uuid_hash = request_json['event_data']['billUUIDHash']
                 contract_address = request_json['contract']
+                redis_conn = await redisconn()
                 bill = await get_bill_graphdb(bill_uuid_hash, request_json['event_data'].update({
                     'state': '0',
                     'reason': 'BillNotFound:Neo4J'
                 }
-                ), contract_address)
+                ), contract_address, redis_conn)
                 if not bill:
                     return
                 group = None
@@ -839,14 +844,16 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                                                               bill_graph_obj=bill,
                                                               bill_uuid_hash=bill_uuid_hash,
                                                               backup_bill_data=request_json,
-                                                              contract_address=contract_address)
+                                                              contract_address=contract_address,
+                                                              redis_conn=redis_conn)
                 # upgrade bill state in relational db too
                 with self.make_session() as session:
                     await bill_reldb_update(session=session,
                                             state_update=state_update_mapping,
                                             bill_uuid_hash=bill_uuid_hash,
                                             request_json=request_json,
-                                            contract_address=contract_address
+                                            contract_address=contract_address,
+                                            redis_conn=redis_conn
                                             )
                 if group_node.approval_required:
                     # do not proceed with firing addExpense() calls
@@ -858,7 +865,7 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                     'reason': 'SplitmapNotCached'
                 }
                 )
-                final_settlement = await get_effective_splitmap(bill_uuid_hash, request_json, contract_address)
+                final_settlement = await get_effective_splitmap(bill_uuid_hash, request_json, contract_address, redis_conn)
                 if not final_settlement:
                     return
                 sentout_txs = await transform_splitmap_to_addexpense(contract_address=contract_address,
@@ -882,14 +889,16 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                                                               bill_graph_obj=bill,
                                                               bill_uuid_hash=bill_uuid_hash,
                                                               backup_bill_data=request_json,
-                                                              contract_address=contract_address)
+                                                              contract_address=contract_address,
+                                                              redis_conn=redis_conn)
                 # upgrade bill state in relational db too
                 with self.make_session() as session:
                     await bill_reldb_update(session=session,
                                             state_update=state_update_mapping,
                                             bill_uuid_hash=bill_uuid_hash,
                                             request_json=request_json,
-                                            contract_address=contract_address
+                                            contract_address=contract_address,
+                                            redis_conn=redis_conn
                                             )
             elif request_json['event_name'] == 'BillApproved':
                 tornado_logger.debug(request_json)
@@ -900,13 +909,14 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                 acl_contract_address = request_json['contract']  # event BillApproved is fired from ACL contract
                 logic_contract_address = settings['contractAddress']
                 upgraded_bill_state = '3'
+                r = await redisconn()
                 # inject backup redundancy that will be picked up by the helper functions
                 request_json['event_data'].update({
                     'state': upgraded_bill_state,
                     'reason': 'SplitmapNotCached'
                 }
                 )
-                bill = await get_bill_graphdb(bill_uuid_hash, request_json, logic_contract_address)
+                bill = await get_bill_graphdb(bill_uuid_hash, request_json, logic_contract_address, r)
                 if not bill:
                     return
                 group = None
@@ -916,7 +926,7 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                     group_node = g_
                     tornado_logger.debug(f'Got group against bill UUID Hash {bill_uuid_hash}: {group}')
 
-                final_settlement = await get_effective_splitmap(bill_uuid_hash, request_json, logic_contract_address)  # splitmap is cached against the address of the logic contract
+                final_settlement = await get_effective_splitmap(bill_uuid_hash, request_json, logic_contract_address, r)  # splitmap is cached against the address of the logic contract
                 if not final_settlement:
                     return
                 sentout_txs = await transform_splitmap_to_addexpense(contract_address=logic_contract_address,
@@ -934,7 +944,8 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                                                               bill_graph_obj=bill,
                                                               bill_uuid_hash=bill_uuid_hash,
                                                               backup_bill_data=request_json,
-                                                              contract_address=logic_contract_address
+                                                              contract_address=logic_contract_address,
+                                                              redis_conn=r
                                                               )
                 # upgrade bill state in relational db too
                 with self.make_session() as session:
@@ -942,7 +953,8 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                                             state_update=state_update_mapping,
                                             bill_uuid_hash=bill_uuid_hash,
                                             request_json=request_json,
-                                            contract_address=logic_contract_address
+                                            contract_address=logic_contract_address,
+                                            redis_conn=r
                                             )
             elif request_json['event_name'] == 'BillSubmitted':
                 tornado_logger.debug('\n\n-----Bill Submitted event------\n\n')
@@ -960,6 +972,7 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                     'indexed_param_value': bill_uuid_hash
                 }
                 group_address = None
+                redis_conn = await redisconn()
                 async with aiohttp.ClientSession() as session:
                     async with session.post(url=method_api_endpoint, json=method_args, headers=headers) as r:
                         resp = await r.json()
@@ -985,12 +998,11 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                         upgraded_bill_state = '6'  # set state to disbursed for a bill marked as reimbursement
                         # remove lock from group against disbursal
                         with self.make_session() as session:
-                            r = await redisconn()
                             entity_reldb = await as_future(
                                 session.query(MoneyVigilCorporateEntity).filter(
                                     MoneyVigilCorporateEntity.uuid == bill.group[0].corporate_entity[0].uuid).first
                             )
-                            await r.delete(PENDING_DISBURSAL_BILL.format(entity_reldb.contract, bill.group[0].uuid))
+                            await redis_conn.delete(PENDING_DISBURSAL_BILL.format(entity_reldb.contract, bill.group[0].uuid))
                     else:
                         upgraded_bill_state = '4'
                 else:
@@ -999,7 +1011,7 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                     await backup_failed_bills(bill_uuid_hash, request_json['event_data'].update({
                         'state': upgraded_bill_state,
                         'reason': 'BillNotFound:Neo4J'
-                    }), contract_address)
+                    }), contract_address, redis_conn)
                     log_failed_bill(bill_uuid_hash, 'Failed to update Bill state to 2 in Neo4J: Bill not found')
                     return
                 # expenseMap is stored as UUID pairings to {paid:, owes:} json structure
@@ -1013,7 +1025,7 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                         'reason': 'BillOperationFailed:Neo4J',
                         'exception': e
                     }
-                    ), contract_address)
+                    ), contract_address, redis_conn)
                     log_failed_bill(bill_uuid_hash, 'Update operation failed to set Bill state to 2 in Neo4J')
                 else:
                     tornado_logger.debug('Upgraded Bill state in graph DB to: ')
@@ -1064,7 +1076,7 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                                 'reason': 'BillOperationFailed:RelationalDB',
                                 'exception': e
                             }
-                            ), contract_address)
+                            ), contract_address, redis_conn)
                             log_failed_bill(bill_uuid_hash,
                                             'Update operation failed to set Bill state to 2 in Relational DB')
                         else:
@@ -1074,7 +1086,7 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                             'state': upgraded_bill_state,
                             'reason': 'BillNotFound:RelationalDB'
                         }
-                        ), contract_address)
+                        ), contract_address, redis_conn)
                         log_failed_bill(bill_uuid_hash,
                                         'Failed to update Bill state to 1 in Relational DB: Bill not found')
                 # --- calculate and store the current simplified debt map for a group ---
@@ -1083,10 +1095,10 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                 if g:
                     tornado_logger.debug(f'Updating simplified debt map for Group {g.uuid}...')
                     try:
-                        await update_simplified_group_debts(g.uuid)
+                        await update_simplified_group_debts(g.uuid, redis_conn)
                     except Exception as e:
                         tornado_logger.error(f'Caught exception in updating simplified map for Group {g.uuid}')
-                        tornado_logger.error(e)
+                        tornado_logger.error(e, exc_info=True)
                 else:
                     # check cached splitMap whether it is a self submitted bill.
                     # 1. such a bill does not have any ExpenseAdded events generated. Hence group address wont be found from event data cache
@@ -1096,7 +1108,6 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                     # }
                     self_submitted_bill = False
                     key = EFFECTIVE_SPLITMAP_KEY.format(contract_address, bill_uuid_hash)
-                    redis_conn = await redisconn()
                     final_settlement = await redis_conn.get(key=key)
                     final_settlement = json.loads(final_settlement)
                     if len(final_settlement.keys()) == 1:  # only one creditor
@@ -1110,7 +1121,7 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                             'state': upgraded_bill_state,
                             'reason': 'BillOperationFailed:Neo4J:GroupNotFound'
                         }
-                        ), contract_address)
+                        ), contract_address, redis_conn)
                         return
                     else:
                         # fetch group information from bill hash
@@ -1190,7 +1201,8 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                     'reason': 'SplitmapNotCached'
                 }
                 )
-                bill = await get_bill_graphdb(bill_uuid_hash, request_json, logic_contract_address)
+                r = await redisconn()
+                bill = await get_bill_graphdb(bill_uuid_hash, request_json, logic_contract_address, r)
                 if not bill:
                     return
                 group = None
@@ -1201,7 +1213,7 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                     tornado_logger.debug(f'Got group against bill UUID Hash {bill_uuid_hash}: {group}')
 
                 final_settlement = await get_effective_splitmap(bill_uuid_hash, request_json,
-                                                                logic_contract_address)  # splitmap is cached against the address of the logic contract
+                                                                logic_contract_address, r)  # splitmap is cached against the address of the logic contract
                 if not final_settlement:
                     return
                 sentout_txs = await transform_splitmap_to_addexpense(contract_address=logic_contract_address,
@@ -1219,7 +1231,8 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                                                               bill_graph_obj=bill,
                                                               bill_uuid_hash=bill_uuid_hash,
                                                               backup_bill_data=request_json,
-                                                              contract_address=logic_contract_address
+                                                              contract_address=logic_contract_address,
+                                                              redis_conn=r
                                                               )
                 # upgrade bill state in relational db too
                 with self.make_session() as session:
@@ -1227,7 +1240,8 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                                             state_update=state_update_mapping,
                                             bill_uuid_hash=bill_uuid_hash,
                                             request_json=request_json,
-                                            contract_address=logic_contract_address
+                                            contract_address=logic_contract_address,
+                                            redis_conn=r
                                             )
             elif request_json['event_name'] == 'NewGroupMember':
                 tornado_logger.debug(request_json)

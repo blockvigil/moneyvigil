@@ -2776,6 +2776,88 @@ def update_employees(request_json):
     return {'success': True, 'updateStatus': ret_status}, 201
 
 
+@app.route('/invite', methods=['POST'])
+def invite_main_entry():
+    request_json = request.json
+    db_sesh = Session()
+    dbcall = DBCallsWrapper()
+    email = request_json['email'].lower()
+    name = request_json['name']
+    invitee_u = dbcall.query_user_by_(session_obj=db_sesh, email=email)
+    return_json = dict()
+    if invitee_u:
+        return_json = {'success': False, 'message': 'UserExists',
+                       'signedUp': True if invitee_u.activated == 1 else False}
+    else:
+        # create a new user entry
+        invited_by_uuid = settings['NEO']['uuid']
+        i = dbcall.query_invites_by_all(session_obj=db_sesh, email=email)
+        if i:
+            return_json = {'success': False, 'message': 'InviteExists'}
+        else:
+            invite_code = random_string(string_length=6)
+            i = MoneyVigilInvites(
+                code=invite_code,
+                email=email,
+                email_sent=False,
+                reusable=False,
+                reuseCount=None,
+                expiry=int(time.time()) + 7 * 24 * 3600,
+                used_at=None,
+                invited_by=invited_by_uuid
+            )
+            # check remainingInviteQuota
+            inviter = dbcall.query_user_by_(session_obj=db_sesh, uuid=invited_by_uuid)
+            if inviter.remaining_invites > 0:
+                email_status = send_invite_email(email, invite_code, name, inviter.name, inviter.email)
+                invited_status = True
+                inviter.remaining_invites = inviter.remaining_invites - 1
+                i.email_sent = email_status
+                db_sesh.add(inviter)
+            elif inviter.remaining_invites == 0:
+                invited_status = False
+                email_status = False
+                i.email_sent = None
+            u_uuid = str(uuid.uuid4())
+            # create entry in relational db
+            new_u = MoneyVigilUser(
+                name='',
+                email=email,
+                password='dummy#',
+                activated=-1,
+                uuid=u_uuid,
+                activation_token='000000',  # dummy token
+                email_subscription=False
+            )
+            db_sesh.add(new_u)
+            db_sesh.add(i)
+            db_sesh.commit()
+            # create entry in graph db
+            try:
+                u_ = User(name=name, email=email, uuid=u_uuid).save()
+            except neomodel.exceptions.UniqueProperty:  # email exists
+                u_ = None
+            return_json = {
+                'success': True,
+                'invitedStatus': invited_status,
+                'emailDeliveryStatus': email_status,
+                'uuid': u_.uuid,
+                'remainingInvites': inviter.remaining_invites
+            }
+    Session.remove()
+    ret_codes = {
+        'UserExists': 403,
+        'InviteExists': 403
+    }
+    if not return_json['success']:
+        try:
+            return_code = ret_codes[return_json['message']]
+        except:
+            return_code = 403
+    else:
+        return_code = 201
+    return jsonify(return_json), return_code
+
 def invite_add_user(request_json):
     db_sesh = Session()
     dbcall = DBCallsWrapper()

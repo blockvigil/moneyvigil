@@ -1,10 +1,11 @@
 import configparser
-import json
+import shutil
 from dynaconf import settings
 
 
 def main():
     config = configparser.ConfigParser()
+    shutil.copyfile('alembic.ini.example', 'alembic.ini')
     config.read('alembic.ini')
     config['alembic']['DB_USER'] = settings['MYSQL']['USER']
     config['alembic']['DB_PASSWORD'] = settings['MYSQL']['PASSWORD']

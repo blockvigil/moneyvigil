@@ -6,9 +6,7 @@ import tenacity
 import redis.exceptions as redis_exc
 import redis
 import decorator
-
-with open('settings.conf.json') as f:
-    settings_conf = json.load(f)
+from dynaconf import settings as settings_conf
 
 REDIS_CONN_CONF = {
     "host": settings_conf['REDIS']['HOST'],

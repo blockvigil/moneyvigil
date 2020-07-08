@@ -169,18 +169,6 @@ def get_simplified_debt_graph(group_uuid):
     return final_mapping
 
 @tenacity.retry(
-    stop=tenacity.stop_after_delay(90),
-    wait=tenacity.wait_random_exponential(multiplier=1, max=60),
-    reraise=True
-)
-async def redisconn():
-    sentinels = await aioredis.create_sentinel(REDIS_CONF['SENTINEL']['INSTANCES'], db=REDIS_DB,
-                                               password=REDIS_PASSWORD)
-    redis_master = await sentinels.master_for(REDIS_CONF['SENTINEL']['CLUSTER_NAME'])
-    return redis_master
-
-
-@tenacity.retry(
 stop=tenacity.stop_after_delay(90),
     wait=tenacity.wait_random_exponential(multiplier=1, max=60),
     reraise=True,
@@ -691,7 +679,7 @@ async def process_transfer_event(session, to_contract, from_contract, transfer_t
     else:
         if to_contract in ENTITY_CONTRACTS or from_contract in ENTITY_CONTRACTS:
             contract_addr = to_contract if to_contract in ENTITY_CONTRACTS else from_contract
-            val = await record_balance(r, contract_addr, transfer_type)
+            val = await record_balance(redis_conn, contract_addr, transfer_type)
             if tokens > 0 and transfer_type == 'dai' and to_contract in ENTITY_CONTRACTS:
                 supply_to_compund_from = contract_addr
     if supply_to_compund_from:
@@ -1406,11 +1394,5 @@ if __name__ == "__main__":
         auth=(settings['NEO4J']['USERNAME'], settings['NEO4J']['PASSWORD']),
         encrypted=False
     )
-    REDIS_CONF = {
-        "SENTINEL": settings['REDIS']['SENTINEL']
-    }
-    s = REDIS_CONF['SENTINEL']['INSTANCES']
-    REDIS_CONF['SENTINEL']['INSTANCES'] = list(map(lambda x: tuple(x), s))
-    REDIS_DB = settings['REDIS']['DB']
-    REDIS_PASSWORD = settings['REDIS']['PASSWORD']
+
     main()

@@ -97,11 +97,5 @@ if __name__ == "__main__":
         auth=(settings['NEO4J']['USERNAME'], settings['NEO4J']['PASSWORD']),
         encrypted=False
     )
-    REDIS_CONF = {
-        "SENTINEL": settings['REDIS']['SENTINEL']
-    }
-    s = REDIS_CONF['SENTINEL']['INSTANCES']
-    REDIS_CONF['SENTINEL']['INSTANCES'] = list(map(lambda x: tuple(x), s))
-    REDIS_DB = settings['REDIS']['DB']
-    REDIS_PASSWORD = settings['REDIS']['PASSWORD']
+
     main()

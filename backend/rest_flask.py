@@ -10,7 +10,6 @@ from neo4j.v1 import GraphDatabase
 from models import *
 import datetime as dt
 import json
-from redis.sentinel import Sentinel
 import requests
 import uuid
 import eth_account

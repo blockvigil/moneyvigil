@@ -98,8 +98,11 @@ rest_logger.propagate = False
 # rest_logger.addHandler(stderr_handler)
 coloredlogs.install(level='DEBUG', logger=rest_logger)
 
-driver = GraphDatabase.driver(settings['NEO4J']['URL'],
-                              auth=(settings['NEO4J']['USERNAME'], settings['NEO4J']['PASSWORD']))
+driver = GraphDatabase.driver(
+    settings['NEO4J']['URL'],
+    auth=(settings['NEO4J']['USERNAME'], settings['NEO4J']['PASSWORD']),
+    encrypted=False
+)
 
 evc = EVCore(verbose=False)
 dai_contract_instance = evc.generate_contract_sdk(

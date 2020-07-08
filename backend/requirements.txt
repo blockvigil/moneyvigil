@@ -48,3 +48,4 @@ dynaconf == 2.0.3
 flask-restx
 git+https://github.com/blockvigil/ethvigil-python-sdk.git
 coloredlogs
+decorator

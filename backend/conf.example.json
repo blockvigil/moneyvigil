@@ -20,12 +20,11 @@
       "ETHVIGIL_USER_ADDRESS": "0x4a20608f7821d13dcb61ae130753cd58b597b03b",
       "ETHVIGIL_API_KEY": "19ec3631-da6a-4b97-876a-8d3c40823464",
       "REDIS": {
-        "SENTINEL": {
-              "INSTANCES": [["127.0.0.1", 16380], ["127.0.0.1", 16381], ["127.0.0.1", 16382]],
-              "CLUSTER_NAME": "redis-cluster"
-          },
-        "DB": 0,
-        "PASSWORD": null
+          "HOST": "localhost",
+          "PORT": 6380,
+          "DB": 0,
+          "PASSWORD": null,
+          "CLUSTER_MODE": false
       },
       "NEO4J": {
         "URL": "bolt://neo4j:neo4j@localhost:7687",

@@ -49,6 +49,7 @@ from request_parsers import (
 )
 from email_helper import send_invite_email, send_group_addition_email, regen_send_activation
 from ethvigil.EVCore import EVCore
+from redis_conn import provide_redis_conn
 
 formatter = logging.Formatter(u"%(levelname)-8s %(name)-4s %(asctime)s,%(msecs)d %(module)s-%(funcName)s: %(message)s")
 
@@ -96,16 +97,6 @@ rest_logger.propagate = False
 # rest_logger.addHandler(stdout_handler)
 # rest_logger.addHandler(stderr_handler)
 coloredlogs.install(level='DEBUG', logger=rest_logger)
-
-REDIS_CONF = {
-    "SENTINEL": settings['REDIS']['SENTINEL']
-}
-REDIS_DB = settings['REDIS']['DB']
-REDIS_PASSWORD = settings['REDIS']['PASSWORD']
-
-sentinel = Sentinel(sentinels=REDIS_CONF['SENTINEL']['INSTANCES'], db=REDIS_DB, password=REDIS_PASSWORD,
-                    socket_timeout=0.1)
-redis_master = sentinel.master_for(REDIS_CONF['SENTINEL']['CLUSTER_NAME'])
 
 driver = GraphDatabase.driver(settings['NEO4J']['URL'],
                               auth=(settings['NEO4J']['USERNAME'], settings['NEO4J']['PASSWORD']))
@@ -319,19 +310,20 @@ def get_user_info():
     return jsonify(return_json)
 
 @login_manager.request_loader
-def load_user_from_auth_token(request):
+@provide_redis_conn
+def load_user_from_auth_token(request, redis_conn=None):
     db_sesh = Session()
     dbcall = DBCallsWrapper()
     token = request.headers.get('Auth-Token')
     ret = None
     if token:
         # check against the key
-        user_uuid = redis_master.get(f'usertoken:{token}:toUUID')
+        user_uuid = redis_conn.get(f'usertoken:{token}:toUUID')
         if user_uuid:
             user_uuid = user_uuid.decode('utf-8')  # convert from bytes object
             u = dbcall.query_user_by_(session_obj=db_sesh, uuid=user_uuid)
             # increase expiry of token
-            redis_master.set(name=f'usertoken:{token}:toUUID', ex=3600 * 24 * 7, value=user_uuid)
+            redis_conn.set(name=f'usertoken:{token}:toUUID', ex=3600 * 24 * 7, value=user_uuid)
             ret = u
         else:
             ret = None
@@ -347,7 +339,8 @@ def unauthorized():
 
 
 @app.route('/login', methods=['POST'])
-def login():
+@provide_redis_conn
+def login(redis_conn=None):
     db_sesh = Session()
     dbcall = DBCallsWrapper()
     request_json = request.json
@@ -362,8 +355,8 @@ def login():
         if bcrypt.checkpw(password, u.password):
             # generate token for session
             token = keccak(text=str(uuid.uuid4())).hex()
-            redis_master.set(name=f'usertoken:{token}:toUUID', value=u.uuid, ex=3600 * 24 * 7)
-            redis_master.sadd(f'uuid:{u.uuid}:authtokens', token)
+            redis_conn.set(name=f'usertoken:{token}:toUUID', value=u.uuid, ex=3600 * 24 * 7)
+            redis_conn.sadd(f'uuid:{u.uuid}:authtokens', token)
             return_json = {'success': True, 'uuid': u.uuid, 'auth-token': token,
                            'remainingInvites': u.remaining_invites}
         else:
@@ -379,12 +372,13 @@ def login():
 
 @login_required
 @app.route('/logout', methods=['POST'])
-def logout():
+@provide_redis_conn
+def logout(redis_conn=None):
     # logout_user()  # this doesnt do anything currently with the token based auth
     token = request.headers.get('Auth-Token')
     if token:
         # invalidate the token
-        redis_master.delete(f'usertoken:{token}:toUUID')
+        redis_conn.delete(f'usertoken:{token}:toUUID')
     return jsonify({'success': True})
 
 
@@ -902,8 +896,8 @@ def get_group_expenses(groupUUID):
     return jsonify(
         {'success': True, 'expenses': expenses, 'groupUUID': {'uuid': g.uuid, 'address': g.address, 'name': g.name}})
 
-
-def get_bill_splits(group_uuid):
+@provide_redis_conn
+def get_bill_splits(group_uuid, redis_conn=None):
     """
 
     :return: Returns stream of splits of expenses grouped together under the original bills
@@ -951,7 +945,7 @@ def get_bill_splits(group_uuid):
             continue
         # get split map
         key = ORIGINAL_SPLITMAP_KEY.format(settings["contractAddress"], b.uuid_hash)
-        split_map = redis_master.get(key)
+        split_map = redis_conn.get(key)
         if not split_map:
             bill_splits.append({'bill': bill_obj, 'splits': []})
             continue
@@ -1100,8 +1094,8 @@ def individual_bill_ops_credential_check(fn):
             return {'success': False, 'message': 'NotPermitted'}, 403
     return authenticated_view
 
-
-def addbill(posted_json):
+@provide_redis_conn
+def addbill(posted_json, redis_conn=None):
     s = Session()
     dbw = DBCallsWrapper()
     logged_in_uuid = get_auth_creds().uuid
@@ -1129,7 +1123,7 @@ def addbill(posted_json):
     if not g:
         return {'success': False, 'message': 'Invalid Group UUID'}, 404
     entity_reldb = dbw.query_entity_by_(session_obj=s, uuid=g.corporate_entity[0].uuid)
-    is_group_pending_disbursal = redis_master.exists(PENDING_DISBURSAL_BILL.format(entity_reldb.contract, g.uuid))
+    is_group_pending_disbursal = redis_conn.exists(PENDING_DISBURSAL_BILL.format(entity_reldb.contract, g.uuid))
     if is_reimbursement:
         if is_group_pending_disbursal:
             return {'success': False, 'message': 'Group is already pending a reimbursement amount'}, 403
@@ -1281,10 +1275,10 @@ def addbill(posted_json):
         # cache final splits against billUUIDHash to be retrieved on webhook listener
         original_splitmap_key = ORIGINAL_SPLITMAP_KEY.format(contract_address, method_args["billUUIDHash"])
         effective_splitmap_key = EFFECTIVE_SPLITMAP_KEY.format(contract_address, method_args["billUUIDHash"])
-        redis_master.set(original_splitmap_key, json.dumps(final_settlement))
-        redis_master.set(effective_splitmap_key, json.dumps(final_settlement))
+        redis_conn.set(original_splitmap_key, json.dumps(final_settlement))
+        redis_conn.set(effective_splitmap_key, json.dumps(final_settlement))
         if is_reimbursement:
-            redis_master.set(PENDING_DISBURSAL_BILL.format(entity_reldb.contract, g.uuid), bill_uuid)
+            redis_conn.set(PENDING_DISBURSAL_BILL.format(entity_reldb.contract, g.uuid), bill_uuid)
         Session.remove()
         return {
             'success': True,
@@ -1294,8 +1288,8 @@ def addbill(posted_json):
     else:
         return jsonify({'success': False})
 
-
-def update_bill(prev_bill_uuid, request_json):
+@provide_redis_conn
+def update_bill(prev_bill_uuid, request_json, redis_conn=None):
     s = Session()
     dbwrapper = DBCallsWrapper()
     prev_bill_obj = dbwrapper.query_bill_by_(session_obj=s, uuid=prev_bill_uuid)
@@ -1327,7 +1321,7 @@ def update_bill(prev_bill_uuid, request_json):
     # prev_effective_splitmap_key = EFFECTIVE_SPLITMAP_KEY.format(settings["contractAddress"], prev_bill_uuid_hash)
     prev_effective_splitmap_key = ORIGINAL_SPLITMAP_KEY.format(settings["contractAddress"], prev_bill_uuid_hash)
     try:
-        prev_splitmap = json.loads(redis_master.get(prev_effective_splitmap_key))
+        prev_splitmap = json.loads(redis_conn.get(prev_effective_splitmap_key))
     except:
         rest_logger.error('Could not find splitMap for previous Bill UUID Hash: ')
         rest_logger.error(prev_bill_uuid_hash)
@@ -1409,8 +1403,8 @@ def update_bill(prev_bill_uuid, request_json):
         # cache final splits against billUUIDHash to be retrieved on webhook listener
         effective_splitmap_key = EFFECTIVE_SPLITMAP_KEY.format(contract_address, method_args["billUUIDHash"])
         original_splitmap_key = ORIGINAL_SPLITMAP_KEY.format(contract_address, method_args["billUUIDHash"])
-        redis_master.set(effective_splitmap_key, json.dumps(addl_splitmap))
-        redis_master.set(original_splitmap_key, json.dumps(new_bill_original_splitmap))
+        redis_conn.set(effective_splitmap_key, json.dumps(addl_splitmap))
+        redis_conn.set(original_splitmap_key, json.dumps(new_bill_original_splitmap))
         return jsonify({
             'success': True,
             'txHash': txhash,
@@ -1538,7 +1532,8 @@ def submit_bill_processing(request_json):
     Session.remove()
     return return_msg
 
-def delete_bill(prev_bill_uuid, request_json):
+@provide_redis_conn
+def delete_bill(prev_bill_uuid, request_json, redis_conn=None):
     s = Session()
     dbwrapper = DBCallsWrapper()
     prev_bill_obj = dbwrapper.query_bill_by_(session_obj=s, uuid=prev_bill_uuid)
@@ -1556,7 +1551,7 @@ def delete_bill(prev_bill_uuid, request_json):
     splitmap_key = ORIGINAL_SPLITMAP_KEY.format(contract_address, prev_bill_uuid_hash)
     # splitmap_key = EFFECTIVE_SPLITMAP_KEY.format(contract_address, prev_bill_uuid_hash)
     try:
-        prev_splitmap = json.loads(redis_master.get(splitmap_key))
+        prev_splitmap = json.loads(redis_conn.get(splitmap_key))
     except Exception as e:
         rest_logger.error('Could not fetch split map for Bill UUID')
         rest_logger.error(prev_bill_uuid)
@@ -1658,8 +1653,8 @@ def delete_bill(prev_bill_uuid, request_json):
         # set reversed split map in cache
         reversed_splitmap_original_key = ORIGINAL_SPLITMAP_KEY.format(contract_address, del_bill_obj.uuid_hash)
         reversed_splitmap_effective_key = EFFECTIVE_SPLITMAP_KEY.format(contract_address, del_bill_obj.uuid_hash)
-        redis_master.set(reversed_splitmap_original_key, json.dumps(reversed_splitmap))
-        redis_master.set(reversed_splitmap_effective_key, json.dumps(reversed_splitmap))
+        redis_conn.set(reversed_splitmap_original_key, json.dumps(reversed_splitmap))
+        redis_conn.set(reversed_splitmap_effective_key, json.dumps(reversed_splitmap))
         return jsonify({
             'success': True,
             'txHash': txhash,
@@ -1823,7 +1818,8 @@ class MoneyVigilCorporateEntityResource(Resource):
 class MoneyVigilCorporateEntityResource(Resource):
     # TODO: add permission check for global level owner/approver/disburser to view entity details
     @login_required
-    def get(self, entityUUID):
+    @provide_redis_conn
+    def get(self, entityUUID, redis_conn=None):
         """Get information about a corporate entity. email, dai balance and contract address"""
         s = Session()
         dbw = DBCallsWrapper()
@@ -1842,9 +1838,9 @@ class MoneyVigilCorporateEntityResource(Resource):
         }
         if not contract_addr:
             return ret_info, 200
-        if redis_master.exists(CONTRACT_DAI_FUNDS.format(contract_addr)):
+        if redis_conn.exists(CONTRACT_DAI_FUNDS.format(contract_addr)):
             # TODO: some cache invalidation logic might help here
-            ret_info['daiBalance'] = int(redis_master.get(CONTRACT_DAI_FUNDS.format(contract_addr)))
+            ret_info['daiBalance'] = int(redis_conn.get(CONTRACT_DAI_FUNDS.format(contract_addr)))
         else:
             try:
                 bal = dai_contract_instance.balanceOf(contract_addr)
@@ -1855,12 +1851,12 @@ class MoneyVigilCorporateEntityResource(Resource):
                 bal = 0
             else:
                 bal = bal['uint256']
-                redis_master.set(CONTRACT_DAI_FUNDS.format(contract_addr), bal)
+                redis_conn.set(CONTRACT_DAI_FUNDS.format(contract_addr), bal)
                 ret_info['daiBalance'] = bal
 
-        if redis_master.exists(CONTRACT_CDAI_FUNDS.format(contract_addr)):
+        if redis_conn.exists(CONTRACT_CDAI_FUNDS.format(contract_addr)):
             # TODO: some cache invalidation logic might help here
-            ret_info['cDaiBalance'] = int(redis_master.get(CONTRACT_CDAI_FUNDS.format(contract_addr)))
+            ret_info['cDaiBalance'] = int(redis_conn.get(CONTRACT_CDAI_FUNDS.format(contract_addr)))
         else:
             try:
                 c_bal = cdai_contract.balanceOf(contract_addr)
@@ -1871,7 +1867,7 @@ class MoneyVigilCorporateEntityResource(Resource):
                 c_bal = 0
             else:
                 c_bal = c_bal['uint256']
-                redis_master.set(CONTRACT_DAI_FUNDS.format(contract_addr), c_bal)
+                redis_conn.set(CONTRACT_DAI_FUNDS.format(contract_addr), c_bal)
             ret_info['daiBalance'] = c_bal
 
         rest_logger.debug(ret_info)
@@ -2925,8 +2921,8 @@ def invite_add_user(request_json):
     Session.remove()
     return jsonify(return_json)
 
-
-def create_entity(request_json):
+@provide_redis_conn
+def create_entity(request_json, redis_conn=None):
     """
     :param request_json['name'] : name of entity to be registered
     :param request_json['email'] : email of entity to be registered
@@ -2996,7 +2992,7 @@ def create_entity(request_json):
     entity_graph.user_representation.connect(entity_user_graph)
     # populate default permissions for global roles
     # cache transient state of ACL contract yet to be mined along with the deploying user
-    redis_master.set(TO_BE_MINED_ACL_CONTRACTS.format(entity_graph.uuidhash), to_normalized_address(request_json['walletAddress']))
+    redis_conn.set(TO_BE_MINED_ACL_CONTRACTS.format(entity_graph.uuidhash), to_normalized_address(request_json['walletAddress']))
     entity_info_hash = {
         'uuid': gen_uuid,
         'representationalUUID': gen_entity_user_uuid,
@@ -3004,7 +3000,7 @@ def create_entity(request_json):
         'email': email,
         'chainID': chain_id
     }
-    redis_master.set(TO_BE_MINED_ENTITY_INFODUMP.format(entity_graph.uuidhash), json.dumps(entity_info_hash))
+    redis_conn.set(TO_BE_MINED_ENTITY_INFODUMP.format(entity_graph.uuidhash), json.dumps(entity_info_hash))
 
     e = EthereumAddress.nodes.first_or_none(address=to_normalized_address(request_json['walletAddress']))
     if e:
@@ -3580,8 +3576,8 @@ def add_group_disbursers(entity_uuid, group_uuid, request_json):
         group_uuid=group_uuid
     )
 
-
-def update_userinfo():
+@provide_redis_conn
+def update_userinfo(redis_conn=None):
     """
     Updates user information in data models according to fields specified in request body.
     Supported fields:
@@ -3670,14 +3666,14 @@ def update_userinfo():
             else:
                 update_value = bcrypt.hashpw(new_password, bcrypt.gensalt(12))
             # clear out all authtokens
-            tokens = redis_master.smembers(name=f'uuid:{current_user.uuid}:authtokens')
+            tokens = redis_conn.smembers(name=f'uuid:{current_user.uuid}:authtokens')
             if tokens:
                 logged_in_token = request.headers.get('Auth-Token')
                 for t in tokens:
                     t = t.decode('utf-8')
                     if t == logged_in_token:
                         continue  # do not invalidate current token
-                    redis_master.delete(f'usertoken:{t}:toUUID')
+                    redis_conn.delete(f'usertoken:{t}:toUUID')
                     rest_logger.info('Invalidated user token')
                     rest_logger.info(t)
         try:
@@ -4010,8 +4006,8 @@ def merge_splitmaps(map1, map2):
         simplified_map[positive_key] -= diff_val
     return final_settlement
 
-
-def get_simplified_debt_graph(group_uuid):
+@provide_redis_conn
+def get_simplified_debt_graph(group_uuid, redis_conn=None):
     """
     get the precomputed debt/split graph structure for a specific group
     :param group_uuid: group UUID
@@ -4020,7 +4016,7 @@ def get_simplified_debt_graph(group_uuid):
     simplified_splitmap_cachekey = SIMPLIFIED_GROUPDEBT_CACHE_KEY.format(settings['contractAddress'], group_uuid)
     rest_logger.info('Attempting to get simplified debt/split graph for Group at key ')
     rest_logger.info(simplified_splitmap_cachekey)
-    simplified_splitmap = redis_master.get(name=simplified_splitmap_cachekey)
+    simplified_splitmap = redis_conn.get(name=simplified_splitmap_cachekey)
     return simplified_splitmap
 
 

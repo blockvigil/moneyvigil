@@ -87,8 +87,12 @@ neo_log = logging.getLogger('neo4j')
 neo_log.addHandler(null_handler)
 neo_log.propagate = False
 
-logging.getLogger('urllib3.connectionpool').addHandler(null_handler)
-logging.getLogger('urllib3.connectionpool').propagate = False
+logging.getLogger('urllib3').addHandler(null_handler)
+logging.getLogger('urllib3').propagate = False
+
+logging.getLogger('EVCore').addHandler(null_handler)
+logging.getLogger('EVCore').propagate = False
+
 
 rest_logger = logging.getLogger('flask.app')
 rest_logger.propagate = False
@@ -100,7 +104,7 @@ coloredlogs.install(level='DEBUG', logger=rest_logger)
 driver = GraphDatabase.driver(
     settings['NEO4J']['URL'],
     auth=(settings['NEO4J']['USERNAME'], settings['NEO4J']['PASSWORD']),
-    encrypted=False
+    encrypted=settings['NEO4J']['ENCRYPTED_CONNECTION']
 )
 
 evc = EVCore(verbose=False)

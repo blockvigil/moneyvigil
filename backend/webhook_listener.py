@@ -35,23 +35,6 @@ from ev_api_calls import ev_add_entity_global_owners, ev_add_entity_employees
 from ethvigil.EVCore import EVCore
 from ethvigil.exceptions import EVHTTPError
 
-evc = EVCore(verbose=False)
-dai_contract_instance = evc.generate_contract_sdk(
-    # contract_address=to_normalized_address('0x4F96Fe3b7A6Cf9725f59d353F723c1bDb64CA6Aa'),
-    contract_address=to_normalized_address(settings['DaiContract']),
-    app_name='Dai'
-)
-
-ens_manager_contract = evc.generate_contract_sdk(
-    contract_address=to_normalized_address(settings['ENSManagerContract']),
-    app_name='ENSManagerContract'
-)
-
-cdai_contract = evc.generate_contract_sdk(
-    contract_address=to_normalized_address(settings['cDaiContract']),
-    app_name='cDai'
-)
-
 first_run = True
 ENTITY_CONTRACTS = set()
 # populate roles for this entity
@@ -100,10 +83,13 @@ tornado_logger.addHandler(stderr_handler)
 
 hn = logging.NullHandler()
 hn.setLevel(logging.DEBUG)
+
 logging.getLogger("tornado.access").addHandler(hn)
 logging.getLogger("tornado.access").propagate = False
-logging.getLogger('urllib3.connectionpool').addHandler(hn)
-logging.getLogger('urllib3.connectionpool').propagate = False
+
+logging.getLogger('urllib3').addHandler(hn)
+logging.getLogger('urllib3').propagate = False
+
 logging.getLogger('EVCore').addHandler(hn)
 logging.getLogger('EVCore').propagate = False
 
@@ -112,6 +98,25 @@ neo_log.addHandler(hn)
 neo_log.propagate = False
 
 coloredlogs.install(level='DEBUG', logger=tornado_logger)
+
+evc = EVCore(verbose=False)
+dai_contract_instance = evc.generate_contract_sdk(
+    # contract_address=to_normalized_address('0x4F96Fe3b7A6Cf9725f59d353F723c1bDb64CA6Aa'),
+    contract_address=to_normalized_address(settings['DaiContract']),
+    app_name='Dai'
+)
+
+ens_manager_contract = evc.generate_contract_sdk(
+    contract_address=to_normalized_address(settings['ENSManagerContract']),
+    app_name='ENSManagerContract'
+)
+
+cdai_contract = evc.generate_contract_sdk(
+    contract_address=to_normalized_address(settings['cDaiContract']),
+    app_name='cDai'
+)
+
+
 
 def update_owes_connections(tx, member_uuid, group_uuid, mapping):
     owes_r = f'OWES_{group_uuid}'
@@ -1392,7 +1397,7 @@ if __name__ == "__main__":
     graph = GraphDatabase.driver(
         settings['NEO4J']['URL'],
         auth=(settings['NEO4J']['USERNAME'], settings['NEO4J']['PASSWORD']),
-        encrypted=False
+        encrypted=settings['NEO4J']['ENCRYPTED_CONNECTION']
     )
 
     main()

@@ -11,6 +11,7 @@ hashed_pw = bcrypt.hashpw('password', bcrypt.gensalt(12))  # 'password' is the p
 
 def fill_entries(session):
     u1 = MoneyVigilUser(**settings['NEO'])
+    u1.password = hashed_pw
     session.add(u1)
     try:
         session.commit()

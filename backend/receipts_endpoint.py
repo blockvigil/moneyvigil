@@ -95,7 +95,7 @@ if __name__ == "__main__":
     graph = GraphDatabase.driver(
         settings['NEO4J']['URL'],
         auth=(settings['NEO4J']['USERNAME'], settings['NEO4J']['PASSWORD']),
-        encrypted=False
+        encrypted=settings['NEO4J']['ENCRYPTED_CONNECTION']
     )
 
     main()

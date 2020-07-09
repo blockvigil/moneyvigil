@@ -29,7 +29,8 @@
       "NEO4J": {
         "URL": "bolt://neo4j:neo4j@localhost:7687",
         "USERNAME": "neo4j",
-        "PASSWORD": "neo4j"
+        "PASSWORD": "neo4j",
+        "ENCRYPTED_CONNECTION": true
       },
       "MYSQL": {
         "HOST": "127.0.0.1",

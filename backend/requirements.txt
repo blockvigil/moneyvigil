@@ -44,8 +44,7 @@ tenacity==5.0.4
 google-cloud-storage == 1.16.1
 google-cloud-vision == 0.37.0
 
-dynaconf == 2.0.3
+dynaconf == 3.0.0
 flask-restx
 git+https://github.com/blockvigil/ethvigil-python-sdk.git
 coloredlogs
-decorator

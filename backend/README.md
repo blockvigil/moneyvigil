@@ -89,36 +89,18 @@ Set up the public URL endpoint as a webhook integration for the smart contracts.
 
 ## Databases and cache
 
-### Redis Sentinel setup
+### Redis Configuration
 
-Follow the guide at [https://seanmcgary.com/posts/how-to-build-a-fault-tolerant-redis-cluster-with-sentinel/](https://seanmcgary.com/posts/how-to-build-a-fault-tolerant-redis-cluster-with-sentinel/) to set up a local Redis high availability cluster powered by Sentinels.
-
-Pull the setup from Github: [https://github.com/seanmcgary/redis-cluster-example](https://github.com/seanmcgary/redis-cluster-example)
-
-You have to fill the appropriate host IP, port numbers and cluster name from the above setup into the settings file section as follows:
+You have to fill the appropriate host IP, port numbers and database number into the settings file section as follows (leave the `CLUSTER_MODE` mode set to False):
 
 ```
 "REDIS": {  
-    "SENTINEL": {  
-      "INSTANCES": [  
-        [  
-          "127.0.0.1",  
-          16380  
-  ],  
-        [  
-          "127.0.0.1",  
-          16381  
-  ],  
-        [  
-          "127.0.0.1",  
-          16382  
-  ]  
-      ],  
-      "CLUSTER_NAME": "redis-cluster"  
-  },  
-    "DB": 0,  
-    "PASSWORD": null  
-  },
+    "HOST": "127.0.0.1",
+    "PORT": 6380,
+    "DB": 0,
+    "PASSWORD": null,
+    "CLUSTER_MODE": false
+},
   ```
 
 ### Neo4j Graph Database 

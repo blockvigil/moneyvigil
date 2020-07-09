@@ -2,7 +2,11 @@ import json
 from neo4j.v1 import GraphDatabase
 from dynaconf import settings
 
-driver = GraphDatabase.driver(settings['NEO4J']['URL'], auth=(settings['NEO4J']['USERNAME'], settings['NEO4J']['PASSWORD']))
+driver = GraphDatabase.driver(
+    settings['NEO4J']['URL'],
+    auth=(settings['NEO4J']['USERNAME'], settings['NEO4J']['PASSWORD']),
+    encrypted=settings['NEO4J']['ENCRYPTED_CONNECTION']
+)
 
 with driver.session() as session:
     session.run('MATCH r=()-->() delete r')

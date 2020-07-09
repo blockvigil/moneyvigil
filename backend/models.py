@@ -5,7 +5,7 @@ from dynaconf import settings
 from eth_utils import keccak
 
 config.DATABASE_URL = settings['NEO4J']['URL']
-
+config.ENCRYPTED_CONNECTION = False
 
 class MemberOf(StructuredRel):
     address = StringProperty(required=True)

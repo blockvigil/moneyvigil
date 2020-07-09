@@ -30,26 +30,10 @@ from tornado_sqlalchemy import as_future, make_session_factory, SessionMixin
 from dynaconf import settings
 from constants import *
 from namehash import namehash
+from redis_conn import provide_async_redis_conn
 from ev_api_calls import ev_add_entity_global_owners, ev_add_entity_employees
 from ethvigil.EVCore import EVCore
 from ethvigil.exceptions import EVHTTPError
-
-evc = EVCore(verbose=False)
-dai_contract_instance = evc.generate_contract_sdk(
-    # contract_address=to_normalized_address('0x4F96Fe3b7A6Cf9725f59d353F723c1bDb64CA6Aa'),
-    contract_address=to_normalized_address(settings['DaiContract']),
-    app_name='Dai'
-)
-
-ens_manager_contract = evc.generate_contract_sdk(
-    contract_address=to_normalized_address(settings['ENSManagerContract']),
-    app_name='ENSManagerContract'
-)
-
-cdai_contract = evc.generate_contract_sdk(
-    contract_address=to_normalized_address(settings['cDaiContract']),
-    app_name='cDai'
-)
 
 first_run = True
 ENTITY_CONTRACTS = set()
@@ -99,10 +83,13 @@ tornado_logger.addHandler(stderr_handler)
 
 hn = logging.NullHandler()
 hn.setLevel(logging.DEBUG)
+
 logging.getLogger("tornado.access").addHandler(hn)
 logging.getLogger("tornado.access").propagate = False
-logging.getLogger('urllib3.connectionpool').addHandler(hn)
-logging.getLogger('urllib3.connectionpool').propagate = False
+
+logging.getLogger('urllib3').addHandler(hn)
+logging.getLogger('urllib3').propagate = False
+
 logging.getLogger('EVCore').addHandler(hn)
 logging.getLogger('EVCore').propagate = False
 
@@ -111,6 +98,25 @@ neo_log.addHandler(hn)
 neo_log.propagate = False
 
 coloredlogs.install(level='DEBUG', logger=tornado_logger)
+
+evc = EVCore(verbose=False)
+dai_contract_instance = evc.generate_contract_sdk(
+    # contract_address=to_normalized_address('0x4F96Fe3b7A6Cf9725f59d353F723c1bDb64CA6Aa'),
+    contract_address=to_normalized_address(settings['DaiContract']),
+    app_name='Dai'
+)
+
+ens_manager_contract = evc.generate_contract_sdk(
+    contract_address=to_normalized_address(settings['ENSManagerContract']),
+    app_name='ENSManagerContract'
+)
+
+cdai_contract = evc.generate_contract_sdk(
+    contract_address=to_normalized_address(settings['cDaiContract']),
+    app_name='cDai'
+)
+
+
 
 def update_owes_connections(tx, member_uuid, group_uuid, mapping):
     owes_r = f'OWES_{group_uuid}'
@@ -166,24 +172,6 @@ def get_simplified_debt_graph(group_uuid):
         simplified_mapping[cur_creditor] -= min_deductible
         simplified_mapping[cur_debitor] += min_deductible
     return final_mapping
-
-@tenacity.retry(
-    stop=tenacity.stop_after_delay(90),
-    wait=tenacity.wait_random_exponential(multiplier=1, max=60),
-    reraise=True
-)
-async def redisconn():
-    sentinels = await aioredis.create_sentinel(REDIS_CONF['SENTINEL']['INSTANCES'], db=REDIS_DB,
-                                               password=REDIS_PASSWORD)
-    redis_master = await sentinels.master_for(REDIS_CONF['SENTINEL']['CLUSTER_NAME'])
-    return redis_master
-
-
-async def redis_master_creds():
-    sentinels = await aioredis.create_sentinel(REDIS_CONF['SENTINEL']['INSTANCES'], db=REDIS_DB,
-                                               password=REDIS_PASSWORD)
-    conn_creds = await sentinels.master_address(REDIS_CONF['SENTINEL']['CLUSTER_NAME'])
-    return conn_creds
 
 @tenacity.retry(
 stop=tenacity.stop_after_delay(90),
@@ -675,9 +663,9 @@ async def record_cdai_balance(r_conn, contract_addr):
     await r_conn.set(key=CONTRACT_CDAI_FUNDS.format(contract_addr), value=c_bal)
     return c_bal
 
-async def process_transfer_event(session, to_contract, from_contract, transfer_type, tokens):
+@provide_async_redis_conn
+async def process_transfer_event(session, to_contract, from_contract, transfer_type, tokens, redis_conn=None):
     global first_run
-    r = await redisconn()
     supply_to_compund_from = None
     if first_run:
         tornado_logger.debug(
@@ -686,7 +674,7 @@ async def process_transfer_event(session, to_contract, from_contract, transfer_t
         for e in entities:
             if e.contract:
                 contract_addr = to_normalized_address(e.contract)
-                val = await record_balance(r, contract_addr, transfer_type)
+                val = await record_balance(redis_conn, contract_addr, transfer_type)
                 if tokens > 0 and transfer_type == 'dai' and contract_addr == to_contract:
                     supply_to_compund_from = contract_addr
                 ENTITY_CONTRACTS.add(contract_addr)
@@ -696,7 +684,7 @@ async def process_transfer_event(session, to_contract, from_contract, transfer_t
     else:
         if to_contract in ENTITY_CONTRACTS or from_contract in ENTITY_CONTRACTS:
             contract_addr = to_contract if to_contract in ENTITY_CONTRACTS else from_contract
-            val = await record_balance(r, contract_addr, transfer_type)
+            val = await record_balance(redis_conn, contract_addr, transfer_type)
             if tokens > 0 and transfer_type == 'dai' and to_contract in ENTITY_CONTRACTS:
                 supply_to_compund_from = contract_addr
     if supply_to_compund_from:
@@ -741,7 +729,8 @@ class cDaiTransferHandler(SessionMixin, tornado.web.RequestHandler):
         self.write({'success': True})
         if 'event_name' in request_json:
             if request_json['event_name'] == 'Transfer':
-                tornado_logger.debug('\n\n-----cDai ERC20 Transfer event------\n\n')
+                tornado_logger.debug('\n\n-----'
+                                     'cDai ERC20 Transfer event------\n\n')
                 tornado_logger.debug(request_json)
                 event_data = request_json['event_data']
                 to_contract = to_normalized_address(event_data['to'])
@@ -750,7 +739,8 @@ class cDaiTransferHandler(SessionMixin, tornado.web.RequestHandler):
                     await process_transfer_event(session, to_contract, from_contract, 'cdai', 0)
 
 class MainHandler(SessionMixin, tornado.web.RequestHandler):
-    async def post(self):
+    @provide_async_redis_conn
+    async def post(self, redis_conn=None):
         global first_run
         # tornado_logger.debug(self.request.headers['content-type'])
         # tornado_logger.debug('---Transaction---')
@@ -765,18 +755,17 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                 tornado_logger.debug(request_json)
                 contract_addr = to_normalized_address(request_json['contract'])
                 ENTITY_CONTRACTS.add(contract_addr)
-                r_conn = await redisconn()
                 with self.make_session() as session:
                     await entity_contract_deployed_processing(
                         session=session,
                         uuid_hash=event_data['companyUUIDHash'],
                         contract_addr=contract_addr,
-                        r = r_conn
+                        r = redis_conn
                     )
-                await record_dai_balance(r_conn, contract_addr)
-                await record_cdai_balance(r_conn, contract_addr)
+                await record_dai_balance(redis_conn, contract_addr)
+                await record_cdai_balance(redis_conn, contract_addr)
                 # find out deploying user for this entity, add that as top level globalowner
-                eth_addr = await r_conn.get(TO_BE_MINED_ACL_CONTRACTS.format(event_data['companyUUIDHash']))
+                eth_addr = await redis_conn.get(TO_BE_MINED_ACL_CONTRACTS.format(event_data['companyUUIDHash']))
                 # convert from bytes to native string
                 eth_addr = eth_addr.decode('utf-8')
                 tornado_logger.debug('Adding user that deployed the ACL contract as GlobalOwner')
@@ -809,7 +798,6 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                 tornado_logger.debug('-----Bill Created event------')
                 bill_uuid_hash = request_json['event_data']['billUUIDHash']
                 contract_address = request_json['contract']
-                redis_conn = await redisconn()
                 bill = await get_bill_graphdb(bill_uuid_hash, request_json['event_data'].update({
                     'state': '0',
                     'reason': 'BillNotFound:Neo4J'
@@ -909,14 +897,13 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                 acl_contract_address = request_json['contract']  # event BillApproved is fired from ACL contract
                 logic_contract_address = settings['contractAddress']
                 upgraded_bill_state = '3'
-                r = await redisconn()
                 # inject backup redundancy that will be picked up by the helper functions
                 request_json['event_data'].update({
                     'state': upgraded_bill_state,
                     'reason': 'SplitmapNotCached'
                 }
                 )
-                bill = await get_bill_graphdb(bill_uuid_hash, request_json, logic_contract_address, r)
+                bill = await get_bill_graphdb(bill_uuid_hash, request_json, logic_contract_address, redis_conn)
                 if not bill:
                     return
                 group = None
@@ -926,7 +913,7 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                     group_node = g_
                     tornado_logger.debug(f'Got group against bill UUID Hash {bill_uuid_hash}: {group}')
 
-                final_settlement = await get_effective_splitmap(bill_uuid_hash, request_json, logic_contract_address, r)  # splitmap is cached against the address of the logic contract
+                final_settlement = await get_effective_splitmap(bill_uuid_hash, request_json, logic_contract_address, redis_conn)  # splitmap is cached against the address of the logic contract
                 if not final_settlement:
                     return
                 sentout_txs = await transform_splitmap_to_addexpense(contract_address=logic_contract_address,
@@ -945,7 +932,7 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                                                               bill_uuid_hash=bill_uuid_hash,
                                                               backup_bill_data=request_json,
                                                               contract_address=logic_contract_address,
-                                                              redis_conn=r
+                                                              redis_conn=redis_conn
                                                               )
                 # upgrade bill state in relational db too
                 with self.make_session() as session:
@@ -954,7 +941,7 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                                             bill_uuid_hash=bill_uuid_hash,
                                             request_json=request_json,
                                             contract_address=logic_contract_address,
-                                            redis_conn=r
+                                            redis_conn=redis_conn
                                             )
             elif request_json['event_name'] == 'BillSubmitted':
                 tornado_logger.debug('\n\n-----Bill Submitted event------\n\n')
@@ -972,7 +959,6 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                     'indexed_param_value': bill_uuid_hash
                 }
                 group_address = None
-                redis_conn = await redisconn()
                 async with aiohttp.ClientSession() as session:
                     async with session.post(url=method_api_endpoint, json=method_args, headers=headers) as r:
                         resp = await r.json()
@@ -1201,8 +1187,7 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                     'reason': 'SplitmapNotCached'
                 }
                 )
-                r = await redisconn()
-                bill = await get_bill_graphdb(bill_uuid_hash, request_json, logic_contract_address, r)
+                bill = await get_bill_graphdb(bill_uuid_hash, request_json, logic_contract_address, redis_conn)
                 if not bill:
                     return
                 group = None
@@ -1213,7 +1198,7 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                     tornado_logger.debug(f'Got group against bill UUID Hash {bill_uuid_hash}: {group}')
 
                 final_settlement = await get_effective_splitmap(bill_uuid_hash, request_json,
-                                                                logic_contract_address, r)  # splitmap is cached against the address of the logic contract
+                                                                logic_contract_address, redis_conn)  # splitmap is cached against the address of the logic contract
                 if not final_settlement:
                     return
                 sentout_txs = await transform_splitmap_to_addexpense(contract_address=logic_contract_address,
@@ -1232,7 +1217,7 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                                                               bill_uuid_hash=bill_uuid_hash,
                                                               backup_bill_data=request_json,
                                                               contract_address=logic_contract_address,
-                                                              redis_conn=r
+                                                              redis_conn=redis_conn
                                                               )
                 # upgrade bill state in relational db too
                 with self.make_session() as session:
@@ -1241,7 +1226,7 @@ class MainHandler(SessionMixin, tornado.web.RequestHandler):
                                             bill_uuid_hash=bill_uuid_hash,
                                             request_json=request_json,
                                             contract_address=logic_contract_address,
-                                            redis_conn=r
+                                            redis_conn=redis_conn
                                             )
             elif request_json['event_name'] == 'NewGroupMember':
                 tornado_logger.debug(request_json)
@@ -1409,13 +1394,10 @@ def main():
 
 
 if __name__ == "__main__":
-    graph = GraphDatabase.driver(settings['NEO4J']['URL'],
-                                 auth=(settings['NEO4J']['USERNAME'], settings['NEO4J']['PASSWORD']))
-    REDIS_CONF = {
-        "SENTINEL": settings['REDIS']['SENTINEL']
-    }
-    s = REDIS_CONF['SENTINEL']['INSTANCES']
-    REDIS_CONF['SENTINEL']['INSTANCES'] = list(map(lambda x: tuple(x), s))
-    REDIS_DB = settings['REDIS']['DB']
-    REDIS_PASSWORD = settings['REDIS']['PASSWORD']
+    graph = GraphDatabase.driver(
+        settings['NEO4J']['URL'],
+        auth=(settings['NEO4J']['USERNAME'], settings['NEO4J']['PASSWORD']),
+        encrypted=settings['NEO4J']['ENCRYPTED_CONNECTION']
+    )
+
     main()

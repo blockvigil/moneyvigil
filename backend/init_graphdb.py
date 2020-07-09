@@ -7,7 +7,11 @@ from neomodel import install_all_labels
 from dynaconf import settings
 import neomodel
 
-driver = GraphDatabase.driver(settings['NEO4J']['URL'], auth=(settings['NEO4J']['USERNAME'], settings['NEO4J']['PASSWORD']))
+driver = GraphDatabase.driver(
+    settings['NEO4J']['URL'],
+    auth=(settings['NEO4J']['USERNAME'], settings['NEO4J']['PASSWORD']),
+    encrypted=settings['NEO4J']['ENCRYPTED_CONNECTION']
+)
 
 
 def create_test_members(tx):

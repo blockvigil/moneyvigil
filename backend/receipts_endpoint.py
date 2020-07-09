@@ -92,12 +92,10 @@ def main():
 
 
 if __name__ == "__main__":
-    graph = GraphDatabase.driver(settings['NEO4J']['URL'], auth=(settings['NEO4J']['USERNAME'], settings['NEO4J']['PASSWORD']))
-    REDIS_CONF = {
-        "SENTINEL": settings['REDIS']['SENTINEL']
-    }
-    s = REDIS_CONF['SENTINEL']['INSTANCES']
-    REDIS_CONF['SENTINEL']['INSTANCES'] = list(map(lambda x: tuple(x), s))
-    REDIS_DB = settings['REDIS']['DB']
-    REDIS_PASSWORD = settings['REDIS']['PASSWORD']
+    graph = GraphDatabase.driver(
+        settings['NEO4J']['URL'],
+        auth=(settings['NEO4J']['USERNAME'], settings['NEO4J']['PASSWORD']),
+        encrypted=settings['NEO4J']['ENCRYPTED_CONNECTION']
+    )
+
     main()
